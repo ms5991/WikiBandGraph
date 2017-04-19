@@ -9,7 +9,7 @@ import time
 
 class Act(object):
 	
-	WikipediaRoot = 'https://en.wikipedia.org'
+	WikipediaRoot = 'http://192.168.113.11:8080'
 
 	def __init__(self, name, link, associatedActs):
 		self.name = name
@@ -20,8 +20,13 @@ def getSingleAct(actSub):
 
 	try:
 		r  = requests.get(Act.WikipediaRoot + actSub)
-	except requests.ConnectionError, e:
-		print('Connection error!')
+	except KeyboardInterrupt:
+		raise
+	except e:
+		try:
+			print('ERROR:\t\t' + str(e.message))
+		except:
+			print('ERROR:\t\t cannot print original error message')
 		return None
 
 	data = r.text
@@ -35,37 +40,41 @@ def getSingleAct(actSub):
 	titleheader = soup.find('h1', attrs={'id':'firstHeading'})
 
 	if table is None:
+		print('Unable to find table for:\t' + actSub)
 		return Act(titleheader.text, actSub, {})
 
 	table_body = table.find('tbody')
 
 	if table_body is None:
+		print('Unable to find table body for:\t' + actSub)
 		return Act(titleheader.text, actSub, {})
 
 	rows = table_body.find_all('tr')
 
 	if rows is None:
+		print('Unable to find rows for:\t' + actSub)
 		return Act(titleheader.text, actSub, {})
 
 
 	associatedActs = {}
-	
+
 	for row in rows:
 		headers = row.find_all('th')	   
 
 		for head in headers:
 
-			if head.text.lower() == 'Associated Acts'.lower():
+			if head.text.lower().strip(' \t\n\r') == 'Associated Acts'.lower():
 
 				data = row.find_all('td')
-
 				for act in data:
 					links = act.find_all('a')
+
 					
 					for link in links:
 						associatedActs[link.get('title')] = link.get('href')
 	
 				break
+
 	return Act(titleheader.text, actSub, associatedActs)
 
 def buildAndOutputGraph(rootAct, filename, countLimit):
@@ -82,7 +91,7 @@ def buildAndOutputGraph(rootAct, filename, countLimit):
 	count = 0
 	while stack and count < countLimit:
 		vertex = stack.pop()
-		print('Popped to explore: ' + vertex.name.encode('unicode-escape') + 'at count: ' + str(count))
+		print('Popped to explore:\t' + vertex.name.encode('unicode-escape') + '\tat count: ' + str(count))
 
 		count += 1		
 
@@ -90,19 +99,21 @@ def buildAndOutputGraph(rootAct, filename, countLimit):
 		if(count % 256 == 0 and count != 0):
 			print('Writing backup file and sleeping...')
 			nx.write_gexf(G, 'backup_' + str(count) + '.gexf')
-			time.sleep(60)
+			time.sleep(10)
 
 		for associatedAct in vertex.associatedActs:
 			if associatedAct not in visited:
 				#build the Act object for this band
 				assAct = getSingleAct(vertex.associatedActs[associatedAct])
-				time.sleep(.3)
-				while assAct is None:
-					print('Retrying to get act...but first sleep for 5 minutes...')
-					time.sleep(300)
-					assAct = getSingleAct(vertex.associatedActs[associatedAct])
+
+				if assAct is None:
+					print('Trying to continue loop')
+					visited.add(associatedAct)
+					G.add_edge(vertex.name, associatedAct)
+					time.sleep(10)
+					continue
 				
-				print('Adding to graph: ' + assAct.name.encode('unicode-escape')) 
+				print('Adding NODE:\t' + assAct.name.encode('unicode-escape')) 
 
 				#add to stack to explore later
 				stack.append(assAct)
@@ -125,8 +136,9 @@ def buildAndOutputGraph(rootAct, filename, countLimit):
 				toAdd = redirectCache[associatedAct]
 
 			#add the edge
-			print('Adding edge from: ' + vertex.name.encode('unicode-escape') + ' to: ' + toAdd.encode('unicode-escape'))
+			print('Adding EDGE from:\t' + vertex.name.encode('unicode-escape') + ' to: ' + toAdd.encode('unicode-escape'))
 			G.add_edge(vertex.name, toAdd)
+	print('Done building graph')
 
 	nx.write_gexf(G, filename)
 	
@@ -147,7 +159,7 @@ def main():
 		root = getSingleAct(url)
 		print('Retrying to get root')
 
-	buildAndOutputGraph(root, filename, 10000)
+	buildAndOutputGraph(root, filename, 1000000)
 
 
 if  __name__ =='__main__':main()
