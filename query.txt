@@ -1,1 +1,2 @@
-Enter a Wikipedia URL to start from (form: '/wiki/BAND_ARTICLE': 
+/wiki/Journey_(band)
+

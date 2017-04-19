@@ -3,6 +3,8 @@ from bs4 import BeautifulSoup
 
 import requests
 import json
+import networkx as nx
+import time
 
 class Act(object):
 	
@@ -13,29 +15,38 @@ class Act(object):
 		self.link = link
 		self.associatedActs = associatedActs
 
-			
+def getSingleAct(actSub):
 
-def persist(currentAct, filename):
-	with open(filename, 'a') as outfile:
-		json.dump(currentAct.__dict__, outfile)
-		outfile.write('\n')
-		
-
-def getSingleAct(url, name):
-	r  = requests.get(url)
+	try:
+		r  = requests.get(Act.WikipediaRoot + actSub)
+	except requests.ConnectionError, e:
+		print('Connection error!')
+		return None
 
 	data = r.text
+
+	actSub = r.url[len(Act.WikipediaRoot):]
 
 	soup = BeautifulSoup(data, "html5lib")
 
 	table = soup.find('table', attrs={'class':'infobox'})
 
+	titleheader = soup.find('h1', attrs={'id':'firstHeading'})
+
 	if table is None:
-		return Act(name, {})
+		return Act(titleheader.text, actSub, {})
 
 	table_body = table.find('tbody')
 
+	if table_body is None:
+		return Act(titleheader.text, actSub, {})
+
 	rows = table_body.find_all('tr')
+
+	if rows is None:
+		return Act(titleheader.text, actSub, {})
+
+
 	associatedActs = {}
 	
 	for row in rows:
@@ -54,27 +65,62 @@ def getSingleAct(url, name):
 						associatedActs[link.get('title')] = link.get('href')
 	
 				break
-	return Act(name, associatedActs)
+	return Act(titleheader.text, actSub, associatedActs)
 
-def crawl(rootAct, filename):
+def buildAndOutputGraph(rootAct, filename):
 
 	visited = set()
 	stack = [rootAct]
 
 	visited.add(rootAct.name)
 
-	while stack:
-		vertex = stack.pop()
+	G = nx.Graph()
+	G.add_node(rootAct.name, link = Act.WikipediaRoot + rootAct.link)
 
-		print('Popped: ' + vertex.name)
-		persist(vertex, filename)
+	redirectCache = {}
+	count = 0
+	while stack and count < 10000:
+		vertex = stack.pop()
+		print('Popped to explore: ' + vertex.name.encode('unicode-escape'))
 		
 		for associatedAct in vertex.associatedActs:
 			if associatedAct not in visited:
-				print('Adding to stack: ' + associatedAct) 
-				assAct = getSingleAct(Act.WikipediaRoot + vertex.associatedActs[associatedAct], associatedAct)
+				#build the Act object for this band
+				assAct = getSingleAct(vertex.associatedActs[associatedAct])
+				time.sleep(.2)
+				while assAct is None:
+					print('Retrying to get act...but first sleep...')
+					time.sleep(10)
+					assAct = getSingleAct(vertex.associatedActs[associatedAct])
+				
+				print('Adding to graph: ' + assAct.name.encode('unicode-escape')) 
+
+				#add to stack to explore later
 				stack.append(assAct)
+				
+				#check to see if there was a redirect
+				#if so, add to cache and add the redirected name as well
+				if associatedAct != assAct.name:
+					redirectCache[associatedAct] = assAct.name
+					visited.add(assAct.name)
+
+				#add this to visited so we don't generate another one
 				visited.add(associatedAct)
+	
+				#add node to graph
+				G.add_node(assAct.name, link = Act.WikipediaRoot + assAct.link)	
+
+				count+=1
+			#check if the band has a redirected name (aka get the name from the band's page, not the url from the incoming link)
+			toAdd = associatedAct
+			if associatedAct in redirectCache:
+				toAdd = redirectCache[associatedAct]
+
+			#add the edge
+			print('Adding edge from: ' + vertex.name.encode('unicode-escape') + ' to: ' + toAdd.encode('unicode-escape'))
+			G.add_edge(vertex.name, toAdd)
+
+	nx.write_gexf(G, filename)
 	
 				
 def main():
@@ -82,13 +128,18 @@ def main():
 
 	print(url)
 
-	filename = 'output.json'
+
+	filename = 'output.gexf'
 
 	
-	root = getSingleAct(Act.WikipediaRoot + url, url)
-	persist(root, filename)
+	root = getSingleAct(url)
 
-	crawl(root, filename)
+	while root is None:
+		time.sleep(1.2)
+		root = getSingleAct(url)
+		print('Retrying to get root')
+
+	buildAndOutputGraph(root, filename)
 
 
 if  __name__ =='__main__':main()
