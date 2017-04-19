@@ -68,7 +68,7 @@ def getSingleAct(actSub):
 				break
 	return Act(titleheader.text, actSub, associatedActs)
 
-def buildAndOutputGraph(rootAct, filename):
+def buildAndOutputGraph(rootAct, filename, countLimit):
 
 	visited = set()
 	stack = [rootAct]
@@ -80,10 +80,14 @@ def buildAndOutputGraph(rootAct, filename):
 
 	redirectCache = {}
 	count = 0
-	while stack and count < 10000:
+	while stack and count < countLimit:
 		vertex = stack.pop()
 		print('Popped to explore: ' + vertex.name.encode('unicode-escape'))
 		
+		# write a backup file every 256 expansions
+		if(count % 256 == 0):
+			nx.write_gexf(G, 'backup_' + str(count) + '.gexf')
+
 		for associatedAct in vertex.associatedActs:
 			if associatedAct not in visited:
 				#build the Act object for this band
