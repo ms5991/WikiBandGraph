@@ -6,23 +6,25 @@ import requests
 import json
 import networkx as nx
 import time
+import sys
+import pickle
 
 class Act(object):
 	
-	WikipediaRoot = 'http://192.168.113.11:8080'
+	# WikipediaRoot = 'http://192.168.113.11:8080'
 
 	def __init__(self, name, link, associatedActs):
 		self.name = name
 		self.link = link
 		self.associatedActs = associatedActs
 
-def getSingleAct(actSub):
+def getSingleAct(wikipediaRoot, actSub):
 
 	try:
-		r  = requests.get(Act.WikipediaRoot + actSub)
+		r  = requests.get(wikipediaRoot + actSub)
 	except KeyboardInterrupt:
 		raise
-	except e:
+	except Exception, e:
 		try:
 			print('ERROR:\t\t' + str(e.message))
 		except:
@@ -31,7 +33,7 @@ def getSingleAct(actSub):
 
 	data = r.text
 
-	actSub = r.url[len(Act.WikipediaRoot):]
+	actSub = r.url[len(wikipediaRoot):]
 
 	soup = BeautifulSoup(data, "html5lib")
 
@@ -77,45 +79,120 @@ def getSingleAct(actSub):
 
 	return Act(titleheader.text, actSub, associatedActs)
 
-def buildAndOutputGraph(rootAct, filename, countLimit):
+def loadVisitedSet():
+	visited = None
+	with open('visitedSet.dat', 'r') as v:
+		visited = pickle.load(v)
+	return visited
 
-	visited = set()
-	stack = [rootAct]
+# loads a serialized stack
+def loadStack():
+	stack = None
+	with open('stack.dat', 'r') as v:
+		stack = pickle.load(v)
+	return stack
 
-	visited.add(rootAct.name)
+# loads a serialized graph	
+def loadGraph()
+	return nx.read_gexf('graph.dat')
 
-	G = nx.Graph()
-	G.add_node(rootAct.name, link = Act.WikipediaRoot + rootAct.link)
+# loads a serialized count
+def loadCount()
+	count = None
+	with open('count.dat', 'r') as v:
+		count = pickle.load(v)
+	return count
 
-	redirectCache = {}
-	count = 0
-	while stack and count < countLimit:
-		vertex = stack.pop()
-		print('Popped to explore:\t' + vertex.name.encode('unicode-escape') + '\tat count: ' + str(count))
+# loads a serialized cache
+def loadRedirectCache()
+	redirectCache = None
+	with open('redirectCache.dat', 'r') as v:
+		redirectCache = pickle.load(v)
+	return redirectCache
 
-		count += 1		
+# serializes the state of the dfs search
+def writeState(graph, visited, stack, count, redirect):
+	with open('visitedSet.dat', 'w') as v:
+		pickle.dump(visited, v)
 
-		# write a backup file every 256 expansions
-		if(count % 256 == 0 and count != 0):
-			print('Writing backup file and sleeping...')
+	with open('stack.dat', 'w') as v:
+		pickle.dump(stack, v)
+
+	nx.write_gexf(graph, 'graph.dat')
+
+	with open('count.dat', 'w') as v:
+		pickle.dump(count, v)
+
+	with open('redirectCache.dat', 'w') as v:
+		pickle.dump(redirect, v)
+	
+
+
+def buildAndOutputGraph(rootAct, wikipediaRoot, filename, countLimit, backupResolution, loadFromFiles = False):
+
+	if loadFromFiles is False:
+		
+		# set of visited names
+		visited = set()
+
+		# list (stack) for dfs
+		stack = [rootAct]
+
+		#add the root node to visited
+		visited.add(rootAct.name)
+
+		# create graph
+		G = nx.Graph()
+
+		# add root node to graph
+		G.add_node(rootAct.name, link = wikipediaRoot + rootAct.link)
+
+		# for the case where a link to a page results in a redirect with a different name
+		redirectCache = {}
+		count = 0
+
+	else:
+		visited = loadVisitedSet()
+		stack = loadStack()
+		G = loadGraph()
+		count = loadCount()
+		redirectCache = loadRedirectCache()
+
+	# while the stack has stuff in it
+	while len(stack) > 0 and count < countLimit:
+		
+		# write a backup file at some number of expansions
+		if(count % backupResolution == 0 and count != 0):
+			print('Writing backup file...')
 			nx.write_gexf(G, 'backup_' + str(count) + '.gexf')
-			time.sleep(10)
+			writeState(G, visited, stack, count, redirectCache)
+			print('Wrote backup file!')
 
-		for associatedAct in vertex.associatedActs:
+		# pop node to examime	
+		currentNode = stack.pop()
+		print('Popped to explore:\t' + currentNode.name.encode('unicode-escape') + '\tat count: ' + str(count))
+
+		count += 1
+
+		# for each outgoing link in this node's html
+		for associatedAct in currentNode.associatedActs:
+
+			# if we haven't already visted, we have to build a node
 			if associatedAct not in visited:
 				#build the Act object for this band
-				assAct = getSingleAct(vertex.associatedActs[associatedAct])
+				assAct = getSingleAct(currentNode.associatedActs[associatedAct])
 
+				# if None, probably had request exception.  Add edge and continue loop
 				if assAct is None:
-					print('Trying to continue loop')
+					print('Got None for: ' + associatedAct)
 					visited.add(associatedAct)
-					G.add_edge(vertex.name, associatedAct)
-					time.sleep(10)
+					G.add_edge(currentNode.name, associatedAct)
+					print('Adding EDGE from:\t' + currentNode.name.encode('unicode-escape') + ' to: ' + toAdd.encode('unicode-escape'))
 					continue
 				
-				print('Adding NODE:\t' + assAct.name.encode('unicode-escape')) 
+				print('Adding NODE:\t\t' + assAct.name.encode('unicode-escape')) 
 
-				#add to stack to explore later
+				#add node to stack to explore later
 				stack.append(assAct)
 				
 				#check to see if there was a redirect
@@ -128,38 +205,52 @@ def buildAndOutputGraph(rootAct, filename, countLimit):
 				visited.add(associatedAct)
 	
 				#add node to graph
-				G.add_node(assAct.name, link = Act.WikipediaRoot + assAct.link)	
+				G.add_node(assAct.name, link = wikipediaRoot + assAct.link)	
 
 			#check if the band has a redirected name (aka get the name from the band's page, not the url from the incoming link)
 			toAdd = associatedAct
 			if associatedAct in redirectCache:
 				toAdd = redirectCache[associatedAct]
 
-			#add the edge
-			print('Adding EDGE from:\t' + vertex.name.encode('unicode-escape') + ' to: ' + toAdd.encode('unicode-escape'))
-			G.add_edge(vertex.name, toAdd)
-	print('Done building graph')
+			#always add the edge
+			print('Adding EDGE from:\t' + currentNode.name.encode('unicode-escape') + ' to: ' + toAdd.encode('unicode-escape'))
+			G.add_edge(currentNode.name, toAdd)
 
+	print('Done building graph. Writing final file at: ' + filename)
 	nx.write_gexf(G, filename)
-	
+	print('Finished writing file!')	
 				
 def main():
+
+	# check args
+	if len(sys.argv) != 5:
+		print('error: usage is: python main.py [wikipedia-url-root] [output-file-name] [exploration-limit (-1 for no limit)] [backup-resolution]')
+		sys.exit(-1)
+
+	# parse args
+	wikipediaRoot = sys.argv[1]
+	outputFileName = sys.argv[2]
+	countLimit = int(sys.argv[3])
+	backupResolution = int(sys.argv[4])
+
+	# infinite count
+	if countLimit < 0:
+		countLimit = sys.maxint
+
+	# get input
 	url = raw_input("Enter a Wikipedia URL to start from (form: '/wiki/BAND_ARTICLE': ")
 
 	print(url)
-
-
-	filename = 'output.gexf'
-
 	
-	root = getSingleAct(url)
+	# get the root
+	root = getSingleAct(wikipediaRoot, url)
 
-	while root is None:
-		time.sleep(1.2)
-		root = getSingleAct(url)
-		print('Retrying to get root')
+	# error
+	if root is None:
+		print('error: unable to find root at: ' + url)
+		sys.exit(-1)
 
-	buildAndOutputGraph(root, filename, 1000000)
+	buildAndOutputGraph(root, wikipediaRoot, filename, countLimit, backupResolution)
 
 
 if  __name__ =='__main__':main()
