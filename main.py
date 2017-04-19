@@ -82,8 +82,10 @@ def buildAndOutputGraph(rootAct, filename, countLimit):
 	count = 0
 	while stack and count < countLimit:
 		vertex = stack.pop()
-		print('Popped to explore: ' + vertex.name.encode('unicode-escape'))
-		
+		print('Popped to explore: ' + vertex.name.encode('unicode-escape') + 'at count: ' + str(count))
+
+		count += 1		
+
 		# write a backup file every 256 expansions
 		if(count % 256 == 0 and count != 0):
 			print('Writing backup file and sleeping...')
@@ -117,7 +119,6 @@ def buildAndOutputGraph(rootAct, filename, countLimit):
 				#add node to graph
 				G.add_node(assAct.name, link = Act.WikipediaRoot + assAct.link)	
 
-				count+=1
 			#check if the band has a redirected name (aka get the name from the band's page, not the url from the incoming link)
 			toAdd = associatedAct
 			if associatedAct in redirectCache:
