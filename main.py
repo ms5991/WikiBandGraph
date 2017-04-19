@@ -85,17 +85,19 @@ def buildAndOutputGraph(rootAct, filename, countLimit):
 		print('Popped to explore: ' + vertex.name.encode('unicode-escape'))
 		
 		# write a backup file every 256 expansions
-		if(count % 256 == 0):
+		if(count % 256 == 0 and count != 0):
+			print('Writing backup file and sleeping...')
 			nx.write_gexf(G, 'backup_' + str(count) + '.gexf')
+			time.sleep(60)
 
 		for associatedAct in vertex.associatedActs:
 			if associatedAct not in visited:
 				#build the Act object for this band
 				assAct = getSingleAct(vertex.associatedActs[associatedAct])
-				time.sleep(.2)
+				time.sleep(.3)
 				while assAct is None:
-					print('Retrying to get act...but first sleep...')
-					time.sleep(10)
+					print('Retrying to get act...but first sleep for 5 minutes...')
+					time.sleep(300)
 					assAct = getSingleAct(vertex.associatedActs[associatedAct])
 				
 				print('Adding to graph: ' + assAct.name.encode('unicode-escape')) 
@@ -144,7 +146,7 @@ def main():
 		root = getSingleAct(url)
 		print('Retrying to get root')
 
-	buildAndOutputGraph(root, filename)
+	buildAndOutputGraph(root, filename, 10000)
 
 
 if  __name__ =='__main__':main()
