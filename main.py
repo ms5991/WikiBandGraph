@@ -1,6 +1,7 @@
 #!/bin/python
 from bs4 import BeautifulSoup
 
+#imports
 import requests
 import json
 import networkx as nx
